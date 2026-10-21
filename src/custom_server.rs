@@ -9,7 +9,6 @@ use hbb_common::{
 };
 use serde_derive::{Deserialize, Serialize};
 
-#[cfg(windows)]
 pub fn load_embedded_server() {
     use hbb_common::config;
 

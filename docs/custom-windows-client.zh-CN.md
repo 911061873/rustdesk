@@ -1,5 +1,7 @@
 # 编译内置服务器配置的 Windows 客户端
 
+默认构建全部平台请参阅 [全平台编译说明](custom-clients.zh-CN.md)。本入口仅用于单独构建 Windows x64。
+
 在 fork 仓库的 **Settings → Secrets and variables → Actions** 中添加以下 Repository secrets 或 Repository variables。同名 Secret 优先。
 
 | 名称 | 必填 | 内容 |
@@ -27,4 +29,4 @@
 
 ## 改动范围
 
-现有代码仅修改 `src/common.rs` 的自定义配置加载入口，增加 Windows 专用的一行调用，以及 `src/custom_server.rs` 的内置配置加载函数。未设置构建环境变量时直接返回，沿用原流程；共享子模块与上游通用构建流程保持原样；桥接工作流仅将停用的 v3 缓存 action 升级为 v4。
+现有代码仅修改 `src/common.rs` 的自定义配置加载入口，增加通用的一行调用，以及 `src/custom_server.rs` 的内置配置加载函数。未设置构建环境变量时直接返回，沿用原流程；共享子模块与上游通用构建流程保持原样；桥接工作流仅将停用的 v3 缓存 action 升级为 v4。

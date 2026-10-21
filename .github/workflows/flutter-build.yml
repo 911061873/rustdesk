@@ -3,6 +3,12 @@ name: Build the flutter version of the RustDesk
 on:
   workflow_call:
     inputs:
+      custom-client:
+        type: boolean
+        default: false
+      publish-release:
+        type: boolean
+        default: true
       upload-artifact:
         type: boolean
         default: true
@@ -21,6 +27,10 @@ on:
 # in this file!
 
 env:
+  RENDEZVOUS_SERVER: ${{ inputs.custom-client && (secrets.RENDEZVOUS_SERVER || vars.RENDEZVOUS_SERVER) || '' }}
+  RS_PUB_KEY: ${{ inputs.custom-client && (secrets.RS_PUB_KEY || vars.RS_PUB_KEY) || '' }}
+  RELAY_SERVER: ${{ inputs.custom-client && (secrets.RELAY_SERVER || vars.RELAY_SERVER) || '' }}
+  API_SERVER: ${{ inputs.custom-client && (secrets.API_SERVER || vars.API_SERVER) || '' }}
   SCITER_RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503, also 1.78 has ABI change which causes our sciter version not working, https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
   RUST_VERSION: "1.75" # sciter failed on m1 with 1.78 because of https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
   MAC_RUST_VERSION: "1.81" # 1.81 is requred for macos, because of https://github.com/yury/cidre requires 1.81
@@ -64,10 +74,16 @@ jobs:
       contents: read
     steps:
       - name: Checkout source code
-        if: ${{ inputs.publish-update-metadata }}
+        if: ${{ inputs.publish-update-metadata || inputs.custom-client }}
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+
+      - name: 校验自定义连接配置
+        if: ${{ inputs.custom-client }}
+        run: |
+          python3 -m unittest discover -s res -p test_validate_custom_server.py
+          python3 res/validate_custom_server.py
 
       - name: Install Python
         if: ${{ inputs.publish-update-metadata }}
@@ -116,7 +132,7 @@ jobs:
 
       - name: Publish Release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.UPLOAD_ARTIFACT == 'true') }}
         with:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
@@ -179,7 +195,7 @@ jobs:
             }
     steps:
       - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -438,6 +454,14 @@ jobs:
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
 
+      - name: 上传自定义 Windows EXE
+        if: ${{ inputs.custom-client }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-windows-flutter-${{ matrix.job.arch }}-exe
+          path: ./SignOutput/*.exe
+          if-no-files-found: error
+
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
         with:
@@ -534,7 +558,7 @@ jobs:
 
       - name: Publish Release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA != 'true'
+        if: ${{ inputs.publish-release && (env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA != 'true') }}
         with:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
@@ -564,7 +588,7 @@ jobs:
           # - { target: aarch64-pc-windows-msvc, os: windows-2022 }
     steps:
       - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -701,6 +725,14 @@ jobs:
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-sciter.exe
 
+      - name: 上传自定义 Windows Sciter EXE
+        if: ${{ inputs.custom-client }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-windows-sciter-x86-exe
+          path: ./SignOutput/*.exe
+          if-no-files-found: error
+
       - name: Sign rustdesk self-extracted file
         if: env.UPLOAD_ARTIFACT == 'true' && env.SIGN_BASE_URL != '-2'
         shell: bash
@@ -717,7 +749,7 @@ jobs:
 
       - name: Publish Release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA != 'true'
+        if: ${{ inputs.publish-release && (env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA != 'true') }}
         with:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
@@ -741,7 +773,7 @@ jobs:
             }
     steps:
       - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -846,6 +878,18 @@ jobs:
       #       flutter/build/ios/ipa/*.ipa
 
 
+      - name: 打包未签名 iOS 归档
+        if: ${{ inputs.custom-client }}
+        run: tar -czf rustdesk-ios-unsigned.xcarchive.tar.gz -C flutter/build/ios/archive .
+
+      - name: 上传未签名 iOS 归档
+        if: ${{ inputs.custom-client }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-ios-unsigned-xcarchive
+          path: rustdesk-ios-unsigned.xcarchive.tar.gz
+          if-no-files-found: error
+
   build-for-macOS:
     name: ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
@@ -873,7 +917,7 @@ jobs:
             }
     steps:
       - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -1108,7 +1152,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish DMG package
-        if: env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA != 'true'
+        if: ${{ inputs.publish-release && (env.UPLOAD_ARTIFACT == 'true' && env.PUBLISH_UPDATE_METADATA != 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1218,6 +1262,7 @@ jobs:
             --release-base-url https://github.com/rustdesk/rustdesk/releases/download
 
       - name: Upload signed update artifacts
+        if: ${{ inputs.publish-release }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1235,6 +1280,7 @@ jobs:
       # The release action replaces same-name assets, so keep published sidecars
       # until replacements are ready.
       - name: Upload signed update metadata signature
+        if: ${{ inputs.publish-release }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1244,6 +1290,7 @@ jobs:
 
       # Clients discover the release through metadata, so publish it only after every referenced asset.
       - name: Publish signed update metadata
+        if: ${{ inputs.publish-release }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1306,6 +1353,7 @@ jobs:
           tar czf rustdesk-${{ env.VERSION }}-unsigned.tar.gz *.dmg windows-x86_64 windows-aarch64 windows-x86 msi-template
 
       - name: Publish unsigned app
+        if: ${{ inputs.publish-release }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1354,7 +1402,7 @@ jobs:
           swap-storage: false
 
       - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -1558,6 +1606,14 @@ jobs:
           mkdir -p signed-apk; pushd signed-apk
           mv ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk .
 
+      - name: 上传开发签名 APK
+        if: ${{ inputs.custom-client && env.ANDROID_SIGNING_KEY == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-android-${{ matrix.job.arch }}-development-apk
+          path: signed-apk/*.apk
+          if-no-files-found: error
+
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
         shell: bash
@@ -1588,7 +1644,7 @@ jobs:
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1597,7 +1653,7 @@ jobs:
             ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish unsigned apk package
-        if: env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1627,7 +1683,7 @@ jobs:
           swap-storage: false
 
       - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -1743,6 +1799,14 @@ jobs:
           mkdir -p signed-apk
           mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
 
+      - name: 上传开发签名 APK
+        if: ${{ inputs.custom-client && env.ANDROID_SIGNING_KEY == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-android-universal-development-apk
+          path: signed-apk/*.apk
+          if-no-files-found: error
+
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
         shell: bash
@@ -1769,11 +1833,11 @@ jobs:
         if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
+          name: rustdesk-${{ env.VERSION }}-universal.apk
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
-        if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1782,7 +1846,7 @@ jobs:
             ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish unsigned apk package
-        if: env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.ANDROID_SIGNING_KEY == null && env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -1817,7 +1881,7 @@ jobs:
             }
     steps:
       - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -1930,6 +1994,7 @@ jobs:
             ls -l "${PWD}"
             ls -l /opt/artifacts/vcpkg/installed
           dockerRunArgs: |
+            --env RENDEZVOUS_SERVER --env RS_PUB_KEY --env RELAY_SERVER --env API_SERVER
             --volume "${PWD}:/workspace"
             --volume "/opt/artifacts:/opt/artifacts"
           shell: /bin/bash
@@ -2089,8 +2154,18 @@ jobs:
                 mv "$name" /workspace/"${name%%.rpm}-suse.rpm"
             done
 
+      - name: 上传自定义安装包
+        if: ${{ inputs.custom-client }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-linux-${{ matrix.job.arch }}-packages
+          path: |
+            rustdesk-*.deb
+            rustdesk-*.rpm
+          if-no-files-found: error
+
       - name: Publish debian/rpm package
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -2125,8 +2200,17 @@ jobs:
           scripts: |
             cd res && HBB=`pwd`/.. FLUTTER=1 makepkg -f
 
+      - name: 上传自定义安装包
+        if: ${{ inputs.custom-client }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-linux-x86_64-archlinux
+          path: |
+            res/rustdesk-*.zst
+          if-no-files-found: error
+
       - name: Publish archlinux package
-        if: matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -2145,7 +2229,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -2251,6 +2335,7 @@ jobs:
             ls -l "${PWD}"
             ls -l /opt/artifacts/vcpkg/installed
           dockerRunArgs: |
+            --env RENDEZVOUS_SERVER --env RS_PUB_KEY --env RELAY_SERVER --env API_SERVER
             --volume "${PWD}:/workspace"
             --volume "/opt/artifacts:/opt/artifacts"
           shell: /bin/bash
@@ -2441,7 +2526,7 @@ jobs:
         shell: bash
 
       - name: Publish debian package
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -2490,7 +2575,7 @@ jobs:
             }
     steps:
       - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -2542,6 +2627,7 @@ jobs:
           setup: |
             ls -l "${PWD}"
           dockerRunArgs: |
+            --env RENDEZVOUS_SERVER --env RS_PUB_KEY --env RELAY_SERVER --env API_SERVER
             --volume "${PWD}:/workspace"
           shell: /bin/bash
           install: |
@@ -2686,7 +2772,7 @@ jobs:
           done
 
       - name: Publish debian package
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -2745,8 +2831,17 @@ jobs:
           sudo appimage-builder --skip-tests --recipe ./AppImageBuilder-${{ matrix.job.arch }}.yml
           cmp AppDir/AppRun appimage-build/AppRun/v2.0.0/AppRun-Release-${{ matrix.job.arch }}
 
+      - name: 上传自定义安装包
+        if: ${{ inputs.custom-client }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-linux-${{ matrix.job.arch }}-appimage
+          path: |
+            ./appimage/*.AppImage
+          if-no-files-found: error
+
       - name: Publish appimage package
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -2814,6 +2909,7 @@ jobs:
           setup: |
             ls -l "${PWD}"
           dockerRunArgs: |
+            --env RENDEZVOUS_SERVER --env RS_PUB_KEY --env RELAY_SERVER --env API_SERVER
             --volume "${PWD}:/workspace"
           shell: /bin/bash
           install: |
@@ -2831,7 +2927,17 @@ jobs:
             flatpak-builder --user --install-deps-from=flathub -y --force-clean --repo=repo ./build ./rustdesk.json
             flatpak build-bundle ./repo rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak com.rustdesk.RustDesk
 
+      - name: 上传自定义安装包
+        if: ${{ inputs.custom-client }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-linux-${{ matrix.job.arch }}${{ matrix.job.suffix }}-flatpak
+          path: |
+            flatpak/*.flatpak
+          if-no-files-found: error
+
       - name: Publish flatpak package
+        if: ${{ inputs.publish-release }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
@@ -2840,7 +2946,7 @@ jobs:
             flatpak/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak
 
   build-rustdesk-web:
-    if: False
+    if: ${{ !inputs.custom-client && vars.ENABLE_WEB_BUILD == 'true' }}
     needs: [validate-update-metadata-keys]
     name: build-rustdesk-web
     runs-on: ubuntu-22.04
@@ -2916,7 +3022,7 @@ jobs:
           popd
 
       - name: Publish web
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ inputs.publish-release && (env.UPLOAD_ARTIFACT == 'true') }}
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           prerelease: true
