@@ -9,6 +9,29 @@ use hbb_common::{
 };
 use serde_derive::{Deserialize, Serialize};
 
+#[cfg(windows)]
+pub fn load_embedded_server() {
+    use hbb_common::config;
+
+    let Some(host) = option_env!("RENDEZVOUS_SERVER").filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let Some(key) = option_env!("RS_PUB_KEY").filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let mut settings = config::DEFAULT_SETTINGS.write().unwrap();
+    settings.insert("custom-rendezvous-server".to_owned(), host.to_owned());
+    settings.insert("key".to_owned(), key.to_owned());
+    for (name, value) in [
+        ("relay-server", option_env!("RELAY_SERVER")),
+        ("api-server", option_env!("API_SERVER")),
+    ] {
+        if let Some(value) = value.filter(|s| !s.is_empty()) {
+            settings.insert(name.to_owned(), value.to_owned());
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize, Clone)]
 pub struct CustomServer {
     #[serde(default)]
