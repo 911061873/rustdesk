@@ -71,7 +71,7 @@ jobs:
 
       - name: Cache Bridge
         id: cache-bridge
-        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3
+        uses: actions/cache@v4
         with:
           path: /tmp/flutter_rust_bridge
           key: bridge-${{ matrix.job.flutter-version }}
