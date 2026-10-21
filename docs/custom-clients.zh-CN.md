@@ -21,7 +21,11 @@
 | Android | 按 ABI 和 universal APK；无发布签名密钥时上传开发签名 APK，仅供测试，不保证跨次构建可直接覆盖升级 |
 | iOS | ARM64 静态库和未签名 `.xcarchive` 压缩包；不是可直接安装的 IPA，需要在 Xcode 使用自己的 Apple 开发团队签名、导出和分发 |
 
-在本次运行页面的 **Artifacts** 下载产物。全平台自定义入口关闭 GitHub Release 发布和更新元数据发布。复用的上游工作流含有请求 `contents: write` 的发布作业，因此调用者保留对应 token 权限以通过 GitHub 的工作流权限检查；自定义入口通过 `publish-release: false` 禁止发布步骤。
+构建期间可在运行页面的 **Artifacts** 下载产物。整次全平台构建成功后，**发布自定义客户端 Release** 工作流会自动汇总最终安装包，在仓库 Releases 创建 `custom-构建序号-运行编号` 版本，并附带 `SHA256SUMS`。它先创建草稿、上传全部文件，完成后再公开发布；失败的构建不会自动发布。
+
+若发布流程临时失败，可在 **Actions → 发布自定义客户端 Release → Run workflow** 填入成功构建的运行编号补发（例如 Actions URL 末尾的数字）。重复触发已发布的同一构建不会重新发布；未完成的草稿可以重试。已过期的 Actions 产物需要重新构建。
+
+发布仅选择最终安装包，不包含桥接代码、裸动态库、Windows 组件目录或 MSI 模板。iOS 未签名归档、Android 开发签名和桌面端签名限制也会写入 Release 说明。原编译工作流中的分散 Release 步骤仍关闭，由单独的汇总发布工作流统一发布；更新元数据仍不发布。
 
 Android 正式发布签名可选配置以下 Secrets：`ANDROID_SIGNING_KEY`（Base64 keystore）、`ANDROID_ALIAS`、`ANDROID_KEY_STORE_PASSWORD`、`ANDROID_KEY_PASSWORD`。macOS 签名沿用上游的 Apple 证书、签名身份和公证配置。iOS 当前明确输出未签名归档，没有自动签名承诺。
 

@@ -1,0 +1,42 @@
+name: 发布自定义客户端 Release
+
+on:
+  workflow_run:
+    workflows: [自定义全平台客户端]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: 已成功完成的全平台构建编号
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: custom-release-${{ github.event.workflow_run.id || inputs.run-id }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 验证发布产物筛选
+        run: python -m unittest discover -s res -p test_publish_custom_release.py
+      - name: 汇总安装包并发布 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_RUN_ID: ${{ github.event.workflow_run.id || inputs.run-id }}
+        run: python res/publish_custom_release.py

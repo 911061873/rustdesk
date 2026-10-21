@@ -2201,7 +2201,7 @@ jobs:
             cd res && HBB=`pwd`/.. FLUTTER=1 makepkg -f
 
       - name: 上传自定义安装包
-        if: ${{ inputs.custom-client }}
+        if: ${{ inputs.custom-client && matrix.job.arch == 'x86_64' }}
         uses: actions/upload-artifact@v4
         with:
           name: custom-linux-x86_64-archlinux
